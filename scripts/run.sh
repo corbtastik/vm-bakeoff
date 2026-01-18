@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-platform="${1:?platform required}"
+vm="${1:?VM required}"
 shift
 cmd="${*:?command required}"
-
-"./drivers/${platform}.sh" run "${cmd}"
-
+VM="${vm}" ./drivers/lima.sh run "${cmd}"

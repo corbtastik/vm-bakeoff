@@ -66,3 +66,8 @@ platforms/*/*.bak
 # Misc
 tmp/
 temp/
+
+# Lima per-VM generated yamls (and any editor backups)
+platforms/lima/vms/*.yaml
+platforms/lima/vms/*.yml
+

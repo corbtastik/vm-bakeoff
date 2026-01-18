@@ -1,38 +1,34 @@
-PLATFORM ?= lima
-VM_NAME  ?= ubuntu-todo-vz-$(PLATFORM)
+VM ?=
 
-CPUS     ?= 4
-MEMORY   ?= 6GiB
-HOST_HTTP?= 8080
-HOST_API ?= 8081
-DATA_DISK_NAME ?= ubuntu-todo-data-$(PLATFORM)
-DATA_DISK_SIZE ?= 20GiB
-
-
-LIMA_YAML := platforms/lima/lima.yaml
-
-.PHONY: ubuntu-pin up down destroy status ssh endpoints provision
+.PHONY: ubuntu-pin up down destroy status ssh endpoints \
+        provision-mongodb provision-postgres provision-nginx
 
 ubuntu-pin:
-	./scripts/lima-pin-ubuntu.sh
+	./scripts/ubuntu-pin.sh
 
 up:
-	./scripts/up.sh $(PLATFORM)
+	./scripts/up.sh "$(VM)"
 
 down:
-	./scripts/down.sh $(PLATFORM)
+	./scripts/down.sh "$(VM)"
 
 destroy:
-	./scripts/destroy.sh $(PLATFORM)
+	./scripts/destroy.sh "$(VM)"
 
 status:
-	./scripts/status.sh $(PLATFORM)
+	./scripts/status.sh "$(VM)"
 
 ssh:
-	./scripts/ssh.sh $(PLATFORM)
+	./scripts/ssh.sh "$(VM)"
 
 endpoints:
-	./scripts/endpoints.sh $(PLATFORM)
+	./scripts/endpoints.sh "$(VM)"
 
-provision:
-	./scripts/provision.sh $(PLATFORM)
+provision-mongodb:
+	./scripts/provision-mongodb.sh "$(VM)"
+
+provision-postgres:
+	./scripts/provision-postgres.sh "$(VM)"
+
+provision-nginx:
+	./scripts/provision-nginx.sh "$(VM)"

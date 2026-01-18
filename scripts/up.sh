@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-platform="${1:?platform required}"
-"./drivers/${platform}.sh" up
+vm="${1:?VM required}"
+VM="${vm}" ./drivers/lima.sh up

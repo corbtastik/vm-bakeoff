@@ -3,19 +3,18 @@ export DEBIAN_FRONTEND=noninteractive
 set -euo pipefail
 
 # -----------------------------
-# Series defaults (override-able)
+# Defaults (override-able)
 # -----------------------------
-: "${DATA_SRC:=/mnt/lima-ubuntu-todo-data-lima}"   # Lima attached disk mount
-: "${DATA_MNT:=/data}"                             # Our canonical mountpoint
+: "${DATA_SRC:=}"                                 # If set: /mnt/lima-<diskname>
+: "${DATA_MNT:=/data}"                            # Canonical mountpoint
 : "${MONGO_DBPATH:=/data/mongodb}"
 : "${MONGO_LOGPATH:=/data/mongodb-log/mongod.log}"
 
-: "${MONGO_MAJOR:=8.0}"                            # Set once for the series (e.g., 8.0)
+: "${MONGO_MAJOR:=8.0}"
 : "${DB_NAME:=todo}"
 : "${DB_ADMIN_USER:=dbAdmin}"
 : "${DB_USER:=dbUser}"
-
-: "${SECRETS_FILE:=/etc/todo-secrets.env}"         # root-only secrets file
+: "${SECRETS_FILE:=/etc/todo-secrets.env}"
 
 # -----------------------------
 # Helpers
@@ -91,27 +90,33 @@ EOF
 need_root
 
 # -----------------------------
-# 1) Ensure the data disk is mounted at /data (persistently)
+# 1) If DATA_SRC is provided, bind-mount it to /data persistently.
+#    If not provided, use OS disk paths (still under /data by default).
 # -----------------------------
-log "Ensuring attached disk exists at ${DATA_SRC}"
-if [[ ! -d "${DATA_SRC}" ]]; then
-  echo "❌ Expected Lima disk mount not found: ${DATA_SRC}"
-  echo "   Check inside VM: ls -la /mnt | grep lima-"
-  exit 1
-fi
+if [[ -n "${DATA_SRC}" ]]; then
+  log "Ensuring attached disk exists at ${DATA_SRC}"
+  if [[ ! -d "${DATA_SRC}" ]]; then
+    echo "❌ Expected Lima disk mount not found: ${DATA_SRC}"
+    echo "   Check inside VM: ls -la /mnt | grep lima-"
+    exit 1
+  fi
 
-log "Creating mountpoint ${DATA_MNT}"
-mkdir -p "${DATA_MNT}"
+  log "Creating mountpoint ${DATA_MNT}"
+  mkdir -p "${DATA_MNT}"
 
-if ! mountpoint -q "${DATA_MNT}"; then
-  log "Bind-mounting ${DATA_SRC} -> ${DATA_MNT}"
-  mount --bind "${DATA_SRC}" "${DATA_MNT}"
-fi
+  if ! mountpoint -q "${DATA_MNT}"; then
+    log "Bind-mounting ${DATA_SRC} -> ${DATA_MNT}"
+    mount --bind "${DATA_SRC}" "${DATA_MNT}"
+  fi
 
-FSTAB_LINE="${DATA_SRC} ${DATA_MNT} none bind 0 0"
-if ! grep -Fxq "${FSTAB_LINE}" /etc/fstab; then
-  log "Persisting bind mount in /etc/fstab"
-  echo "${FSTAB_LINE}" >> /etc/fstab
+  FSTAB_LINE="${DATA_SRC} ${DATA_MNT} none bind 0 0"
+  if ! grep -Fxq "${FSTAB_LINE}" /etc/fstab; then
+    log "Persisting bind mount in /etc/fstab"
+    echo "${FSTAB_LINE}" >> /etc/fstab
+  fi
+else
+  log "No DATA_SRC provided — using OS disk (no additional persistent disk)"
+  mkdir -p "${DATA_MNT}"
 fi
 
 log "Creating MongoDB directories on ${DATA_MNT}"
