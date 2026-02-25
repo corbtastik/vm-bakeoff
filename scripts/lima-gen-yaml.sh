@@ -10,15 +10,8 @@ fi
 VM="${vm}"
 # shellcheck disable=SC1090
 source "vms/${VM}.env"
-
-: "${VM_NAME:=${VM}-vz}"
-: "${VM_KIND:=ubuntu}"
-: "${CPUS:=4}"
-: "${MEMORY:=6GiB}"
-: "${ROOT_DISK_SIZE:=20GiB}"
-: "${FORWARDS:=}"
-: "${HAS_DATA_DISK:=1}"
-: "${DATA_DISK_NAME:=${VM}-data}"
+# shellcheck disable=SC1091
+source "lib/defaults.env"
 
 OUT="platforms/lima/vms/${VM}.yaml"
 mkdir -p "$(dirname "${OUT}")"

@@ -2,49 +2,31 @@
 export DEBIAN_FRONTEND=noninteractive
 set -euo pipefail
 
+# -----------------------------
+# Shared library
+# -----------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib.sh"
+
+# Set Postgres-specific log prefix
+LOG_PREFIX="[postgres]"
+
 : "${DATA_SRC:=}"
 : "${DATA_MNT:=/data}"
 
 : "${PG_MAJOR:=16}"
 : "${PG_PORT:=5432}"
 : "${PG_BIND:=127.0.0.1}"
-: "${PG_DB:=todo_pg}"
-: "${PG_USER:=todo_pg_user}"
-: "${SECRETS_FILE:=/etc/todo-secrets.env}"
-
-need_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    echo "❌ Please run as root (meant to be run via sudo)."
-    exit 1
-  fi
-}
-log(){ echo "🐘 $*"; }
-
-rand_pw() {
-  set +o pipefail
-  local pw
-  pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
-  set -o pipefail
-  printf '%s' "$pw"
-}
+: "${PG_DB:=app_pg}"
+: "${PG_USER:=app_pg_user}"
+: "${PG_POWER_USER:=app_pg_power}"
+: "${SECRETS_FILE:=/etc/app-secrets.env}"
 
 need_root
 
 # Mount persistent disk if provided
-if [[ -n "${DATA_SRC}" ]]; then
-  if [[ ! -d "${DATA_SRC}" ]]; then
-    echo "❌ Expected Lima disk mount not found: ${DATA_SRC}"
-    exit 1
-  fi
-  mkdir -p "${DATA_MNT}"
-  if ! mountpoint -q "${DATA_MNT}"; then
-    mount --bind "${DATA_SRC}" "${DATA_MNT}"
-  fi
-  line="${DATA_SRC} ${DATA_MNT} none bind 0 0"
-  grep -Fxq "${line}" /etc/fstab || echo "${line}" >> /etc/fstab
-else
-  mkdir -p "${DATA_MNT}"
-fi
+setup_data_mount "${DATA_SRC}" "${DATA_MNT}"
 
 log "Installing Postgres ${PG_MAJOR}"
 apt-get update -y
@@ -116,6 +98,15 @@ if ! grep -q '^PG_PASS=' "${SECRETS_FILE}"; then
   chmod 600 "${SECRETS_FILE}"
 fi
 
+if ! grep -q '^PG_POWER_PASS=' "${SECRETS_FILE}"; then
+  PG_POWER_PASS="$(rand_pw)"
+  {
+    echo "PG_POWER_USER=\"${PG_POWER_USER}\""
+    echo "PG_POWER_PASS=\"${PG_POWER_PASS}\""
+  } >> "${SECRETS_FILE}"
+  chmod 600 "${SECRETS_FILE}"
+fi
+
 # shellcheck disable=SC1090
 source "${SECRETS_FILE}"
 
@@ -144,6 +135,32 @@ END
 \$\$;
 EOF
 
+# Power user: CREATEDB + CREATEROLE (not superuser)
+log "Creating power user: ${PG_POWER_USER}"
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOF
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PG_POWER_USER}') THEN
+    CREATE ROLE ${PG_POWER_USER} LOGIN PASSWORD '${PG_POWER_PASS}' CREATEDB CREATEROLE;
+  ELSE
+    ALTER ROLE ${PG_POWER_USER} LOGIN PASSWORD '${PG_POWER_PASS}' CREATEDB CREATEROLE;
+  END IF;
+END
+\$\$;
+EOF
+
+# Grant power user access to all existing databases
+for db in $(sudo -u postgres psql -tAc "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres'"); do
+  log "Granting ${PG_POWER_USER} full access to database: ${db}"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${db}" <<EOF
+GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${PG_POWER_USER};
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${PG_POWER_USER};
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${PG_POWER_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${PG_POWER_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${PG_POWER_USER};
+EOF
+done
+
 # Database cannot be created in a DO block (CREATE DATABASE is not allowed in a transaction)
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DB}'" | grep -q 1; then
   log "Creating database: ${PG_DB} (owner: ${PG_USER})"
@@ -157,4 +174,7 @@ sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOF
 ALTER DATABASE ${PG_DB} OWNER TO ${PG_USER};
 EOF
 
-log "✅ Postgres ready. Secrets: ${SECRETS_FILE}"
+log "✅ Postgres ready."
+log "   App user: ${PG_USER} (owns ${PG_DB})"
+log "   Power user: ${PG_POWER_USER} (CREATEDB, CREATEROLE, full access)"
+log "   Secrets: ${SECRETS_FILE}"

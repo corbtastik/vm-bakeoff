@@ -32,5 +32,8 @@ fi
   echo "export PG_DB=\"${PG_DB}\""
   echo "export PG_USER=\"${PG_USER}\""
   echo "export SECRETS_FILE=\"${SECRETS_FILE}\""
-  cat scripts/guest/provision-postgres.sh
+  # Inline the shared library (skip shebang)
+  tail -n +2 scripts/guest/lib.sh
+  # Inline the main script (skip shebang and lib.sh sourcing)
+  awk 'NR>1 && !/source.*lib\.sh/' scripts/guest/provision-postgres.sh
 ) | VM="${VM}" ./drivers/lima.sh run_stdin

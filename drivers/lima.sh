@@ -25,17 +25,8 @@ load_vm_env() {
   fi
   # shellcheck disable=SC1090
   source "${f}"
-
-  : "${VM_NAME:=${VM}-vz}"
-  : "${VM_KIND:=ubuntu}"
-  : "${CPUS:=4}"
-  : "${MEMORY:=6GiB}"
-  : "${ROOT_DISK_SIZE:=20GiB}"
-  : "${FORWARDS:=}"
-
-  : "${HAS_DATA_DISK:=1}"
-  : "${DATA_DISK_NAME:=${VM}-data}"
-  : "${DATA_DISK_SIZE:=20GiB}"
+  # shellcheck disable=SC1091
+  source "lib/defaults.env"
 }
 
 vm_exists() {
@@ -177,8 +168,10 @@ run_stdin() {
   require
   load_vm_env
 
-  limactl shell "${VM_NAME}" -- bash -lc 'cat > /tmp/provision.sh && chmod +x /tmp/provision.sh'
-  limactl shell "${VM_NAME}" -- bash -lc 'sudo /tmp/provision.sh; rc=$?; rm -f /tmp/provision.sh; exit $rc'
+  # Use unique temp file to avoid collisions with concurrent provisions
+  local tmp_script="/tmp/provision-$$.sh"
+  limactl shell "${VM_NAME}" -- bash -lc "cat > ${tmp_script} && chmod +x ${tmp_script}"
+  limactl shell "${VM_NAME}" -- bash -lc "sudo ${tmp_script}; rc=\$?; rm -f ${tmp_script}; exit \$rc"
 }
 
 cmd="${1:-}"

@@ -3,6 +3,16 @@ export DEBIAN_FRONTEND=noninteractive
 set -euo pipefail
 
 # -----------------------------
+# Shared library
+# -----------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib.sh"
+
+# Set MongoDB-specific log prefix
+LOG_PREFIX="[mongodb]"
+
+# -----------------------------
 # Defaults (override-able)
 # -----------------------------
 : "${DATA_SRC:=}"                                 # If set: /mnt/lima-<diskname>
@@ -11,41 +21,10 @@ set -euo pipefail
 : "${MONGO_LOGPATH:=/data/mongodb-log/mongod.log}"
 
 : "${MONGO_MAJOR:=8.0}"
-: "${DB_NAME:=todo}"
+: "${DB_NAME:=app}"
 : "${DB_ADMIN_USER:=dbAdmin}"
 : "${DB_USER:=dbUser}"
-: "${SECRETS_FILE:=/etc/todo-secrets.env}"
-
-# -----------------------------
-# Helpers
-# -----------------------------
-need_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    echo "❌ Please run as root (this script is meant to be run via sudo)."
-    exit 1
-  fi
-}
-
-log() { echo "🧩 $*"; }
-
-rand_pw() {
-  # `head` closes the pipe early; with `pipefail` that can surface as SIGPIPE (141).
-  # Temporarily disable pipefail for this pipeline.
-  set +o pipefail
-  local pw
-  pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
-  set -o pipefail
-  printf '%s' "$pw"
-}
-
-ensure_pkg() {
-  local pkg="$1"
-  if ! dpkg -s "$pkg" >/dev/null 2>&1; then
-    log "Installing package: ${pkg}"
-    apt-get update -y
-    apt-get install -y "$pkg"
-  fi
-}
+: "${SECRETS_FILE:=/etc/app-secrets.env}"
 
 wait_for_mongo() {
   log "Waiting for mongod to accept connections on 127.0.0.1:27017..."
@@ -93,31 +72,7 @@ need_root
 # 1) If DATA_SRC is provided, bind-mount it to /data persistently.
 #    If not provided, use OS disk paths (still under /data by default).
 # -----------------------------
-if [[ -n "${DATA_SRC}" ]]; then
-  log "Ensuring attached disk exists at ${DATA_SRC}"
-  if [[ ! -d "${DATA_SRC}" ]]; then
-    echo "❌ Expected Lima disk mount not found: ${DATA_SRC}"
-    echo "   Check inside VM: ls -la /mnt | grep lima-"
-    exit 1
-  fi
-
-  log "Creating mountpoint ${DATA_MNT}"
-  mkdir -p "${DATA_MNT}"
-
-  if ! mountpoint -q "${DATA_MNT}"; then
-    log "Bind-mounting ${DATA_SRC} -> ${DATA_MNT}"
-    mount --bind "${DATA_SRC}" "${DATA_MNT}"
-  fi
-
-  FSTAB_LINE="${DATA_SRC} ${DATA_MNT} none bind 0 0"
-  if ! grep -Fxq "${FSTAB_LINE}" /etc/fstab; then
-    log "Persisting bind mount in /etc/fstab"
-    echo "${FSTAB_LINE}" >> /etc/fstab
-  fi
-else
-  log "No DATA_SRC provided — using OS disk (no additional persistent disk)"
-  mkdir -p "${DATA_MNT}"
-fi
+setup_data_mount "${DATA_SRC}" "${DATA_MNT}"
 
 log "Creating MongoDB directories on ${DATA_MNT}"
 mkdir -p "${MONGO_DBPATH}"
@@ -214,6 +169,17 @@ EOF
 fi
 
 # -----------------------------
+# 3.5) Validate mongod.conf before proceeding
+# -----------------------------
+log "Validating mongod.conf"
+if ! mongod --config "${CONF}" --validate 2>/dev/null; then
+  echo "mongod.conf validation failed. Contents:"
+  cat "${CONF}"
+  exit 1
+fi
+log "mongod.conf is valid"
+
+# -----------------------------
 # 4) Secrets (source of truth) + deterministic user reconciliation
 # -----------------------------
 log "Preparing secrets file ${SECRETS_FILE}"
@@ -276,9 +242,9 @@ mongosh --quiet --username "${DB_ADMIN_USER}" --password "${DB_ADMIN_PASS}" --au
 use ${DB_NAME}
 const u = db.getUser("${DB_USER}");
 if (!u) {
-  db.createUser({ user: "${DB_USER}", pwd: "${DB_USER_PASS}", roles: [ { role: "readWrite", db: "${DB_NAME}" }, { role: "dbAdmin", db: "${DB_NAME}" } ] });
+  db.createUser({ user: "${DB_USER}", pwd: "${DB_USER_PASS}", roles: [ { role: "readWriteAnyDatabase", db: "admin" }, { role: "dbAdminAnyDatabase", db: "admin" } ] });
 } else {
-  db.updateUser("${DB_USER}", { pwd: "${DB_USER_PASS}", roles: [ { role: "readWrite", db: "${DB_NAME}" }, { role: "dbAdmin", db: "${DB_NAME}" } ] });
+  db.updateUser("${DB_USER}", { pwd: "${DB_USER_PASS}", roles: [ { role: "readWriteAnyDatabase", db: "admin" }, { role: "dbAdminAnyDatabase", db: "admin" } ] });
 }
 EOF
 
@@ -295,13 +261,13 @@ log "✅ Authenticated ping succeeded"
 log "Installing MongoDB aliases (mdb_user, mdb_admin) in /etc/profile.d"
 cat > /etc/profile.d/mongo-aliases.sh <<'EOF'
 # MongoDB helper aliases for the VM bakeoff series
-# Uses /etc/todo-secrets.env (root-only) to avoid leaking creds in user dotfiles.
+# Uses /etc/app-secrets.env (root-only) to avoid leaking creds in user dotfiles.
 
 # Auth as app user (dbUser)
-alias mdb_user='sudo bash -lc '"'"'source /etc/todo-secrets.env && mongosh "$MONGODB_URI"'"'"''
+alias mdb_user='sudo bash -lc '"'"'source /etc/app-secrets.env && mongosh "$MONGODB_URI"'"'"''
 
 # Auth as admin (dbAdmin)
-alias mdb_admin='sudo bash -lc '"'"'source /etc/todo-secrets.env && mongosh --host 127.0.0.1 --port 27017 --username "$DB_ADMIN_USER" --password "$DB_ADMIN_PASS" --authenticationDatabase admin'"'"''
+alias mdb_admin='sudo bash -lc '"'"'source /etc/app-secrets.env && mongosh --host 127.0.0.1 --port 27017 --username "$DB_ADMIN_USER" --password "$DB_ADMIN_PASS" --authenticationDatabase admin'"'"''
 EOF
 chmod 0644 /etc/profile.d/mongo-aliases.sh
 

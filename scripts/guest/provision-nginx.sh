@@ -2,16 +2,23 @@
 export DEBIAN_FRONTEND=noninteractive
 set -euo pipefail
 
+# -----------------------------
+# Shared library
+# -----------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib.sh"
+
+LOG_PREFIX="[nginx]"
+
 : "${NGINX_PORT:=80}"
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "❌ Run as root"
-  exit 1
-fi
+need_root
 
-apt-get update -y
-apt-get install -y nginx
+log "Installing nginx"
+ensure_pkg nginx
+
 systemctl enable nginx
 systemctl restart nginx
 
-echo "✅ nginx running on port ${NGINX_PORT}"
+log "nginx running on port ${NGINX_PORT}"
