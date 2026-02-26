@@ -4,18 +4,22 @@ set -euo pipefail
 vm="${1:?VM required}"
 VM="${vm}"
 
+# Load VM config (for disk name -> DATA_SRC mapping)
 # shellcheck disable=SC1090
 source "vms/${VM}.env"
 : "${HAS_DATA_DISK:=1}"
 : "${DATA_DISK_NAME:=${VM}-data}"
 
+# Load Postgres software config
 # shellcheck disable=SC1090
 source "software/postgres.env"
 
+# If VM has a data disk, Lima mounts it as /mnt/lima-<diskname>.
+# We'll bind-mount it to /data inside the guest provision script.
 if [[ "${HAS_DATA_DISK}" == "1" ]]; then
   DATA_SRC="/mnt/lima-${DATA_DISK_NAME}"
 else
-  DATA_SRC=""
+  DATA_SRC=""  # guest script will use OS disk defaults
 fi
 
 (

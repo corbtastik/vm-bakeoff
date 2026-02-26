@@ -11,14 +11,30 @@ source "${SCRIPT_DIR}/lib.sh"
 
 LOG_PREFIX="[nginx]"
 
+# -----------------------------
+# Defaults (override-able)
+# -----------------------------
 : "${NGINX_PORT:=80}"
 
+# -----------------------------
+# 0) Must be root
+# -----------------------------
 need_root
 
+# -----------------------------
+# 1) Install nginx
+# -----------------------------
 log "Installing nginx"
 ensure_pkg nginx
 
+# -----------------------------
+# 2) Enable and start service
+# -----------------------------
+log "Enabling and starting nginx"
 systemctl enable nginx
 systemctl restart nginx
 
-log "nginx running on port ${NGINX_PORT}"
+# -----------------------------
+# 3) Final summary
+# -----------------------------
+log "Done! nginx is running on port ${NGINX_PORT}."

@@ -9,11 +9,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib.sh"
 
-# Set Postgres-specific log prefix
 LOG_PREFIX="[postgres]"
 
-: "${DATA_SRC:=}"
-: "${DATA_MNT:=/data}"
+# -----------------------------
+# Defaults (override-able)
+# -----------------------------
+: "${DATA_SRC:=}"                    # If set: /mnt/lima-<diskname>
+: "${DATA_MNT:=/data}"               # Canonical mountpoint
 
 : "${PG_MAJOR:=16}"
 : "${PG_PORT:=5432}"
@@ -23,20 +25,31 @@ LOG_PREFIX="[postgres]"
 : "${PG_POWER_USER:=app_pg_power}"
 : "${SECRETS_FILE:=/etc/app-secrets.env}"
 
+# -----------------------------
+# 0) Must be root
+# -----------------------------
 need_root
 
-# Mount persistent disk if provided
+# -----------------------------
+# 1) Setup persistent data mount
+# -----------------------------
 setup_data_mount "${DATA_SRC}" "${DATA_MNT}"
 
+# -----------------------------
+# 2) Install PostgreSQL
+# -----------------------------
 log "Installing Postgres ${PG_MAJOR}"
-apt-get update -y
-apt-get install -y "postgresql-${PG_MAJOR}" "postgresql-client-${PG_MAJOR}" postgresql-contrib
+ensure_pkg "postgresql-${PG_MAJOR}"
+ensure_pkg "postgresql-client-${PG_MAJOR}"
+ensure_pkg postgresql-contrib
 
+# -----------------------------
+# 3) Configure data directory
+# -----------------------------
 CONF_DIR="/etc/postgresql/${PG_MAJOR}/main"
 PG_CONF="${CONF_DIR}/postgresql.conf"
 PG_HBA="${CONF_DIR}/pg_hba.conf"
 
-# Persistent data dir if /data is real
 PG_DATA_BASE="${DATA_MNT}/postgres"
 PG_DATA_DIR="${PG_DATA_BASE}/${PG_MAJOR}/main"
 PG_MARKER="${PG_DATA_BASE}/.initialized-${PG_MAJOR}"
@@ -61,7 +74,10 @@ if [[ ! -f "${PG_MARKER}" ]]; then
   chmod 600 "${PG_MARKER}"
 fi
 
-# Configure bind + port + scram
+# -----------------------------
+# 4) Configure bind + port + auth
+# -----------------------------
+log "Configuring postgresql.conf (listen_addresses/port/password_encryption)"
 grep -qE '^[[:space:]]*listen_addresses[[:space:]]*=' "${PG_CONF}" \
   && sed -i.bak "s|^[[:space:]]*listen_addresses[[:space:]]*=.*|listen_addresses = '${PG_BIND}'|" "${PG_CONF}" \
   || echo "listen_addresses = '${PG_BIND}'" >> "${PG_CONF}"
@@ -80,7 +96,10 @@ grep -qE '^[[:space:]]*host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.
 systemctl enable postgresql
 systemctl restart postgresql
 
-# Secrets file (shared)
+# -----------------------------
+# 5) Secrets (source of truth)
+# -----------------------------
+log "Preparing secrets file ${SECRETS_FILE}"
 if [[ ! -f "${SECRETS_FILE}" ]]; then
   cat > "${SECRETS_FILE}" <<EOF
 # Shared app secrets for VM bakeoff series
@@ -118,11 +137,10 @@ else
 fi
 chmod 600 "${SECRETS_FILE}"
 
-# -----------------------------------------
-# Create/update role + database idempotently
-# -----------------------------------------
-
-# Role can be managed inside a DO block (transaction OK)
+# -----------------------------
+# 6) Create/update roles + database
+# -----------------------------
+log "Creating/updating app user: ${PG_USER}"
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOF
 DO \$\$
 BEGIN
@@ -174,7 +192,11 @@ sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOF
 ALTER DATABASE ${PG_DB} OWNER TO ${PG_USER};
 EOF
 
-log "✅ Postgres ready."
-log "   App user: ${PG_USER} (owns ${PG_DB})"
-log "   Power user: ${PG_POWER_USER} (CREATEDB, CREATEROLE, full access)"
-log "   Secrets: ${SECRETS_FILE}"
+# -----------------------------
+# 7) Final summary
+# -----------------------------
+log "Done! Postgres ${PG_MAJOR} is ready."
+echo "App user: ${PG_USER} (owns ${PG_DB})"
+echo "Power user: ${PG_POWER_USER} (CREATEDB, CREATEROLE, full access)"
+echo "Secrets: ${SECRETS_FILE}"
+echo "Tip: source ${SECRETS_FILE} && echo \$POSTGRES_URI"

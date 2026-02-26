@@ -4,6 +4,7 @@ set -euo pipefail
 vm="${1:?VM required}"
 VM="${vm}"
 
+# Load nginx software config
 # shellcheck disable=SC1090
 source "software/nginx.env"
 

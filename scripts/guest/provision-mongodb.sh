@@ -9,7 +9,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib.sh"
 
-# Set MongoDB-specific log prefix
 LOG_PREFIX="[mongodb]"
 
 # -----------------------------
@@ -271,7 +270,10 @@ alias mdb_admin='sudo bash -lc '"'"'source /etc/app-secrets.env && mongosh --hos
 EOF
 chmod 0644 /etc/profile.d/mongo-aliases.sh
 
-log "Done! 🎉 Next: use ${SECRETS_FILE} for app connection string."
-echo "🔐 Secrets live at: ${SECRETS_FILE}"
-echo "📌 Tip: from root shell, run: source ${SECRETS_FILE} && echo \$MONGODB_URI"
-echo "✨ New shell aliases: mdb_user / mdb_admin (log out/in or run: source /etc/profile.d/mongo-aliases.sh)"
+# -----------------------------
+# 7) Final summary
+# -----------------------------
+log "Done! MongoDB ${MONGO_MAJOR} is ready."
+echo "Secrets: ${SECRETS_FILE}"
+echo "Tip: source ${SECRETS_FILE} && echo \$MONGODB_URI"
+echo "Shell aliases: mdb_user / mdb_admin (log out/in or run: source /etc/profile.d/mongo-aliases.sh)"
