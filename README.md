@@ -235,6 +235,3 @@ MIT (or your preference)
 
 ---
 
-I love it. Now I had previously wrote a blog post. I'm going to paste it here. I want you to redo it in the same spirit, keep the tutorial flow, but speak to the changes we made. No need to reference the "old" way in the blog post. approach it like it's a new post that I'm writing on how to automate local VM provisioning, configure the VMs for lima and configure MongoDB (i work for mongodb) and postgres. Walk the user through what this code/repo is doing. Use inline links and also emojis.
-
-When it comes to code blocks for my blog post don't use ```bash ``` ticks, instead use CODE_START:bash .... CODE_END tags for any code snippets. Again this is just when generating markdown for my blog. You can use ```markdown my blog post content ``` for the actual content so I can copy.
